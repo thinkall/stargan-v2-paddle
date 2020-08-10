@@ -4,6 +4,9 @@
 # PyCharm
 .idae
 
+# MS Office
+~$*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
