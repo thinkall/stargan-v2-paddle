@@ -2,20 +2,21 @@
 # -*- coding:utf-8 -*-
 # Author: Li JIANG
 """
-StarGAN-v2
-Implementation of StarGAN-v2 with PaddlePaddle
-
-Codes were adapted from https://github.com/clovaai/stargan-v2
+PaddlePaddle Implementation of StarGAN-v2
 """
 
 import os
 import argparse
+import sys
 
 from munch import Munch
+from core.data_reader import get_train_loader
+from core.data_reader import get_test_loader
+# from solver import Solver
 
-from core.data_loader import get_train_loader
-from core.data_loader import get_test_loader
-from core.solver import Solver
+
+def str2bool(v):
+    return v.lower() in ('true')
 
 
 def subdirs(dname):
@@ -25,10 +26,8 @@ def subdirs(dname):
 
 def main(args):
     print(args)
-    # torch.manual_seed(args.seed)  # is there a similar function in paddle?
-
-    solver = Solver(args)
-
+    # solver = Solver(args)
+    sys.exit(0)
     if args.mode == 'train':
         assert len(subdirs(args.train_img_dir)) == args.num_domains
         assert len(subdirs(args.val_img_dir)) == args.num_domains
@@ -66,9 +65,6 @@ def main(args):
         solver.sample(loaders)
     elif args.mode == 'eval':
         solver.evaluate()
-    elif args.mode == 'align':
-        from core.wing import align_faces
-        align_faces(args, args.inp_dir, args.out_dir)
     else:
         raise NotImplementedError
 
@@ -127,7 +123,7 @@ if __name__ == '__main__':
                         help='Number of generated images per domain during sampling')
 
     # misc
-    parser.add_argument('--mode', type=str, required=True,
+    parser.add_argument('--mode', type=str, default='train',
                         choices=['train', 'sample', 'eval', 'align'],
                         help='This argument is used in solver')
     parser.add_argument('--num_workers', type=int, default=4,
