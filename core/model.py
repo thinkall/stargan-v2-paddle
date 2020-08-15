@@ -19,16 +19,15 @@ from core.base_network import conv2d_with_filter
 
 
 class ResBlk(fluid.dygraph.Layer):
-    def __init__(self, name_scope, dim_in, dim_out, normalize=False, downsample=False):
+    def __init__(self, dim_in, dim_out, normalize=False, downsample=False):
         """
 
-        :param name_scope:
         :param dim_in: in_channels
         :param dim_out: out_channels
         :param normalize:
         :param downsample:
         """
-        super(ResBlk, self).__init__(name_scope)
+        super(ResBlk, self).__init__()
         self.normalize = normalize
         self.downsample = downsample
         self.learned_sc = dim_in != dim_out
@@ -142,6 +141,15 @@ class HighPass(fluid.dygraph.Layer):
         return conv2d_with_filter(x, filter, padding=1, groups=x.shape[1])
 
 
+class LeakyRelu(fluid.Layer):
+    def __init__(self, alpha=0.2):
+        super().__init__()
+        self.leaky_relu = lambda x: fluid.layers.leaky_relu(x, alpha=alpha)
+
+    def forward(self, x):
+        return self.leaky_relu(x)
+
+
 class Generator(fluid.dygraph.Layer):
     def __init__(self, img_size=256, style_dim=64, max_conv_dim=512, w_hpf=1):
         super().__init__()
@@ -151,7 +159,8 @@ class Generator(fluid.dygraph.Layer):
         self.encode = fluid.dygraph.Sequential()
         self.decode = fluid.dygraph.Sequential()
         self.to_rgb = fluid.dygraph.Sequential(fluid.dygraph.InstanceNorm(dim_in),
-                                               functools.partial(fluid.layers.leaky_relu, alpha=0.2),
+                                               # functools.partial(fluid.layers.leaky_relu, alpha=0.2),
+                                               LeakyRelu(alpha=0.2),
                                                nn.Conv2D(dim_in, 3, 1, 1, 0))
         self.w_hpf = w_hpf
 
@@ -230,7 +239,6 @@ class MappingNetwork(fluid.dygraph.Layer):
 class StyleEncoder(fluid.dygraph.Layer):
     def __init__(self, img_size=256, style_dim=64, num_domains=2, max_conv_dim=512):
         super().__init__()
-        self.leaky_relu = functools.partial(fluid.layers.leaky_relu, alpha=0.2)
         dim_in = 2**14 // img_size
         blocks = []
         blocks += [nn.Conv2D(3, dim_in, 3, 1, 1)]
@@ -241,9 +249,9 @@ class StyleEncoder(fluid.dygraph.Layer):
             blocks += [ResBlk(dim_in, dim_out, downsample=True)]
             dim_in = dim_out
 
-        blocks += [self.leaky_relu]
+        blocks += [LeakyRelu(alpha=0.2)]
         blocks += [nn.Conv2D(dim_out, dim_out, 4, 1, 0)]
-        blocks += [self.leaky_relu]
+        blocks += [LeakyRelu(alpha=0.2)]
         self.shared = fluid.dygraph.Sequential(*blocks)
 
         self.unshared = fluid.dygraph.Sequential()
@@ -265,7 +273,6 @@ class StyleEncoder(fluid.dygraph.Layer):
 class Discriminator(fluid.dygraph.Layer):
     def __init__(self, img_size=256, num_domains=2, max_conv_dim=512):
         super().__init__()
-        self.leaky_relu = functools.partial(fluid.layers.leaky_relu, alpha=0.2)
         dim_in = 2**14 // img_size
         blocks = []
         blocks += [nn.Conv2D(3, dim_in, 3, 1, 1)]
@@ -276,9 +283,9 @@ class Discriminator(fluid.dygraph.Layer):
             blocks += [ResBlk(dim_in, dim_out, downsample=True)]
             dim_in = dim_out
 
-        blocks += [self.leaky_relu]
+        blocks += [LeakyRelu(alpha=0.2)]
         blocks += [nn.Conv2D(dim_out, dim_out, 4, 1, 0)]
-        blocks += [self.leaky_relu]
+        blocks += [LeakyRelu(alpha=0.2)]
         blocks += [nn.Conv2D(dim_out, num_domains, 1, 1, 0)]
         self.main = fluid.dygraph.Sequential(*blocks)
 
@@ -290,14 +297,28 @@ class Discriminator(fluid.dygraph.Layer):
         return out
 
 
+def soft_update(source, target, decay=1.0):
+    assert 0.0 <= decay <= 1.0
+    target_model_map = dict(target.named_parameters())
+    for param_name, source_param in source.named_parameters():
+        target_param = target_model_map[param_name]
+        target_param.set_value(decay * source_param + (1.0 - decay) * target_param)
+
+
 def build_model(args):
     generator = Generator(args.img_size, args.style_dim, w_hpf=args.w_hpf)
     mapping_network = MappingNetwork(args.latent_dim, args.style_dim, args.num_domains)
     style_encoder = StyleEncoder(args.img_size, args.style_dim, args.num_domains)
     discriminator = Discriminator(args.img_size, args.num_domains)
-    generator_ema = copy.deepcopy(generator)
-    mapping_network_ema = copy.deepcopy(mapping_network)
-    style_encoder_ema = copy.deepcopy(style_encoder)
+    # generator_ema = copy.deepcopy(generator)
+    # mapping_network_ema = copy.deepcopy(mapping_network)
+    # style_encoder_ema = copy.deepcopy(style_encoder)
+    generator_ema = Generator(args.img_size, args.style_dim, w_hpf=args.w_hpf)
+    mapping_network_ema = MappingNetwork(args.latent_dim, args.style_dim, args.num_domains)
+    style_encoder_ema = StyleEncoder(args.img_size, args.style_dim, args.num_domains)
+    soft_update(generator, generator_ema)
+    soft_update(mapping_network, mapping_network_ema)
+    soft_update(style_encoder, style_encoder_ema)
 
     nets = Munch(generator=generator,
                  mapping_network=mapping_network,
@@ -313,3 +334,44 @@ def build_model(args):
     #     nets_ema.fan = fan
 
     return nets, nets_ema
+
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser()
+
+    # model arguments
+    parser.add_argument('--img_size', type=int, default=256,
+                        help='Image resolution')
+    parser.add_argument('--num_domains', type=int, default=2,
+                        help='Number of domains')
+    parser.add_argument('--latent_dim', type=int, default=16,
+                        help='Latent vector dimension')
+    parser.add_argument('--hidden_dim', type=int, default=512,
+                        help='Hidden dimension of mapping network')
+    parser.add_argument('--style_dim', type=int, default=64,
+                        help='Style code dimension')
+
+    # weight for objective functions
+    parser.add_argument('--lambda_reg', type=float, default=1,
+                        help='Weight for R1 regularization')
+    parser.add_argument('--lambda_cyc', type=float, default=1,
+                        help='Weight for cyclic consistency loss')
+    parser.add_argument('--lambda_sty', type=float, default=1,
+                        help='Weight for style reconstruction loss')
+    parser.add_argument('--lambda_ds', type=float, default=1,
+                        help='Weight for diversity sensitive loss')
+    parser.add_argument('--ds_iter', type=int, default=100000,
+                        help='Number of iterations to optimize diversity sensitive loss')
+    parser.add_argument('--w_hpf', type=float, default=1,
+                        help='weight for high-pass filtering')
+
+    args = parser.parse_args()
+    place = paddle.fluid.CUDAPlace(0) if paddle.fluid.is_compiled_with_cuda() else paddle.fluid.CPUPlace()
+    with fluid.dygraph.guard(place):
+        nets, nets_ema = build_model(args)
+        print(nets)
+        print(nets_ema)
+        print(nets.generator.state_dict().keys())
+        assert (nets.generator.state_dict()['from_rgb.weight'].numpy()
+                == nets_ema.generator.state_dict()['from_rgb.weight'].numpy()).all()
