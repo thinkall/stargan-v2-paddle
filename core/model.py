@@ -18,6 +18,15 @@ import paddle.fluid.dygraph.nn as nn
 from core.base_network import conv2d_with_filter
 
 
+class LeakyRelu(fluid.dygraph.Layer):
+    def __init__(self, alpha=0.2):
+        super().__init__()
+        self.leaky_relu = lambda x: fluid.layers.leaky_relu(x, alpha=alpha)
+
+    def forward(self, x):
+        return self.leaky_relu(x)
+
+
 class ResBlk(fluid.dygraph.Layer):
     def __init__(self, dim_in, dim_out, normalize=False, downsample=False):
         """
@@ -33,7 +42,7 @@ class ResBlk(fluid.dygraph.Layer):
         self.learned_sc = dim_in != dim_out
         self._build_weights(dim_in, dim_out)
         self.avg_pool2d = fluid.dygraph.Pool2D(pool_size=2, pool_stride=2, pool_padding=0, pool_type='avg')
-        self.actv = functools.partial(fluid.layers.leaky_relu, alpha=0.2)
+        self.actv = LeakyRelu(0.2)
 
     def _build_weights(self, dim_in, dim_out):
         self.conv1 = nn.Conv2D(dim_in, dim_in, 3, 1, 1)
@@ -76,9 +85,9 @@ class AdaIN(fluid.dygraph.Layer):
         self.fc = nn.Linear(style_dim, num_features * 2)
 
     def forward(self, x, s):
-        h = self.fc(s)
+        h = self.fc(s)  # [8, 1024], [8,512] ...
         h = fluid.layers.reshape(h, shape=[h.shape[0], h.shape[1], 1, 1])
-        h = fluid.layers.unstack(h, axis=2)
+        h = fluid.layers.split(h, num_or_sections=2, dim=1)
         gamma, beta = h[0], h[1]
         return (1 + gamma) * self.norm(x) + beta
 
@@ -87,7 +96,7 @@ class AdainResBlk(fluid.dygraph.Layer):
     def __init__(self, dim_in, dim_out, style_dim=64, w_hpf=0, upsample=False):
         super().__init__()
         self.w_hpf = w_hpf
-        self.actv = functools.partial(fluid.layers.leaky_relu, alpha=0.2)
+        self.actv = LeakyRelu(0.2)
         self.upsample = upsample
         self.learned_sc = dim_in != dim_out
         self._build_weights(dim_in, dim_out, style_dim)
@@ -135,19 +144,10 @@ class HighPass(fluid.dygraph.Layer):
         self.filter = tmp / w_hpf
 
     def forward(self, x):
-        filter = self.filter.repeat(x.shape[1], 0)
-        filter = fluid.dygraph.to_variable(filter)
+        filter = fluid.dygraph.to_variable(self.filter)
+        filter = fluid.layers.concat([filter] * x.shape[1], axis=0)
         # return paddle.nn.functional.conv2d(x, filter, padding=1, groups=x.shape[1])  # need paddle develop version
         return conv2d_with_filter(x, filter, padding=1, groups=x.shape[1])
-
-
-class LeakyRelu(fluid.Layer):
-    def __init__(self, alpha=0.2):
-        super().__init__()
-        self.leaky_relu = lambda x: fluid.layers.leaky_relu(x, alpha=alpha)
-
-    def forward(self, x):
-        return self.leaky_relu(x)
 
 
 class Generator(fluid.dygraph.Layer):
@@ -166,27 +166,31 @@ class Generator(fluid.dygraph.Layer):
 
         # down/up-sampling blocks
         repeat_num = int(np.log2(img_size)) - 4
+        self.repeat_num = repeat_num
         if w_hpf > 0:
             repeat_num += 1
         for _ in range(repeat_num):
             dim_out = min(dim_in * 2, max_conv_dim)
-            self.encode.add_sublayer(f'l{_}',
+            self.encode.add_sublayer(f'lsample_{_}',
                                      ResBlk(dim_in, dim_out, normalize=True, downsample=True))
-            self.decode.add_sublayer(f'l{_}',
+            self.decode.add_sublayer(f'lsample_{_}',
                                      AdainResBlk(dim_out, dim_in, style_dim,
                                                  w_hpf=w_hpf, upsample=True))
             dim_in = dim_out
-        self.decode1 = fluid.dygraph.Sequential()
-        i = 0
-        for layer in self.decode.sublayers()[::-1]:
-            i += 1
-            self.decode1.add_sublayer(f'l{i}', layer)
-        self.decode = self.decode1  # stack-like
 
         # bottleneck blocks
         for _ in range(2):
-            self.encode.add_sublayer(f'l{_}', ResBlk(dim_out, dim_out, normalize=True))
-            self.decode.add_sublayer(f'l{_}', AdainResBlk(dim_out, dim_out, style_dim, w_hpf=w_hpf))
+            self.encode.add_sublayer(f'lbnk_{_}', ResBlk(dim_out, dim_out, normalize=True))
+            self.decode.add_sublayer(f'lbnk_{_}', AdainResBlk(dim_out, dim_out, style_dim, w_hpf=w_hpf))
+
+        self.decode1 = fluid.dygraph.Sequential()
+        for _ in list(range(2))[::-1]:
+            layer = self.decode[f'lbnk_{_}']
+            self.decode1.add_sublayer(f'lbnk_{_}', layer)
+        for _ in list(range(repeat_num))[::-1]:
+            layer = self.decode[f'lsample_{_}']
+            self.decode1.add_sublayer(f'lsample_{_}', layer)
+        self.decode = self.decode1  # stack-like
 
         if w_hpf > 0:
             self.hpf = HighPass(w_hpf)
@@ -194,23 +198,40 @@ class Generator(fluid.dygraph.Layer):
     def forward(self, x, s, masks=None):
         x = self.from_rgb(x)
         cache = {}
-        for block in self.encode:
+
+        for _ in range(self.repeat_num):
             if (masks is not None) and (x.shape[2] in [32, 64, 128]):
                 cache[x.shape[2]] = x
-            x = block(x)
-        for block in self.decode:
-            x = block(x, s)
+            x = self.encode[f'lsample_{_}'](x)
+
+        for _ in range(2):
+            if (masks is not None) and (x.shape[2] in [32, 64, 128]):
+                cache[x.shape[2]] = x
+            x = self.encode[f'lbnk_{_}'](x)
+
+        for _ in list(range(2))[::-1]:
+            x = self.decode[f'lbnk_{_}'](x, s)
             if (masks is not None) and (x.shape[2] in [32, 64, 128]):
                 mask = masks[0] if x.shape[2] in [32] else masks[1]
                 mask = fluid.layers.interpolate(mask, out_shape=x.shape[2], resample='BILINEAR')
                 if self.w_hpf > 0:
                     x = x + self.hpf(mask * cache[x.shape[2]])
+
+        for _ in list(range(self.repeat_num))[::-1]:
+            x = self.decode[f'lsample_{_}'](x, s)
+            if (masks is not None) and (x.shape[2] in [32, 64, 128]):
+                mask = masks[0] if x.shape[2] in [32] else masks[1]
+                mask = fluid.layers.interpolate(mask, out_shape=x.shape[2], resample='BILINEAR')
+                if self.w_hpf > 0:
+                    x = x + self.hpf(mask * cache[x.shape[2]])
+
         return self.to_rgb(x)
 
 
 class MappingNetwork(fluid.dygraph.Layer):
     def __init__(self, latent_dim=16, style_dim=64, num_domains=2):
         super().__init__()
+        self.num_domains = num_domains
         layers = []
         layers += [nn.Linear(latent_dim, 512, act='relu')]
         for _ in range(3):
@@ -228,17 +249,19 @@ class MappingNetwork(fluid.dygraph.Layer):
     def forward(self, z, y):
         h = self.shared(z)
         out = []
-        for layer in self.unshared:
-            out += [layer(h)]
-        out = paddle.fluid.layers.stack(out, axis=2)  # (batch, num_domains, style_dim)
-        idx = fluid.dygraph.to_variable(np.array(range(y.shape[0])))
-        s = out[idx, y]  # (batch, style_dim)
-        return s
+        for _ in range(self.num_domains):
+            out += [self.unshared[f'lsub_{_}'](h)]
+        out = paddle.fluid.layers.stack(out, axis=2)  # (batch, style_dim, num_domains)
+        out = fluid.layers.transpose(out, [0, 2, 1])  # (batch, num_domains, style_dim)
+        idx = np.array(range(y.shape[0]))
+        s = out.numpy()[idx, y.numpy()-1]  # (batch, style_dim)
+        return fluid.dygraph.to_variable(s)
 
 
 class StyleEncoder(fluid.dygraph.Layer):
     def __init__(self, img_size=256, style_dim=64, num_domains=2, max_conv_dim=512):
         super().__init__()
+        self.num_domains = num_domains
         dim_in = 2**14 // img_size
         blocks = []
         blocks += [nn.Conv2D(3, dim_in, 3, 1, 1)]
@@ -262,12 +285,13 @@ class StyleEncoder(fluid.dygraph.Layer):
         h = self.shared(x)
         h = fluid.layers.reshape(h, shape=[h.shape[0], -1])
         out = []
-        for layer in self.unshared:
-            out += [layer(h)]
-        out = paddle.fluid.layers.stack(out, axis=2)   # (batch, num_domains, style_dim)
-        idx = fluid.dygraph.to_variable(np.array(range(y.shape[0])))
-        s = out[idx, y]  # (batch, style_dim)
-        return s
+        for _ in range(self.num_domains):
+            out += [self.unshared[f'lsub_{_}'](h)]
+        out = paddle.fluid.layers.stack(out, axis=2)  # (batch, style_dim, num_domains)
+        out = fluid.layers.transpose(out, [0, 2, 1])  # (batch, num_domains, style_dim)
+        idx = np.array(range(y.shape[0]))
+        s = out.numpy()[idx, y.numpy()-1]  # (batch, style_dim)
+        return fluid.dygraph.to_variable(s)
 
 
 class Discriminator(fluid.dygraph.Layer):
@@ -292,9 +316,9 @@ class Discriminator(fluid.dygraph.Layer):
     def forward(self, x, y):
         out = self.main(x)
         out = fluid.layers.reshape(out, shape=[out.shape[0], -1])  # (batch, num_domains)
-        idx = fluid.dygraph.to_variable(np.array(range(y.shape[0])))
-        out = out[idx, y]  # (batch)
-        return out
+        idx = np.array(range(y.shape[0]))
+        out = out.numpy()[idx, y.numpy()-1]  # (batch)
+        return fluid.dygraph.to_variable(out)
 
 
 def soft_update(source, target, decay=1.0):
@@ -375,3 +399,7 @@ if __name__ == '__main__':
         print(nets.generator.state_dict().keys())
         assert (nets.generator.state_dict()['from_rgb.weight'].numpy()
                 == nets_ema.generator.state_dict()['from_rgb.weight'].numpy()).all()
+    print(nets.keys(), nets_ema.keys())
+    for k in nets:
+        print(k)
+

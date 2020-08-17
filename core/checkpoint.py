@@ -10,9 +10,6 @@ import paddle
 import paddle.fluid as fluid
 
 
-place = paddle.fluid.CUDAPlace(0) if paddle.fluid.is_compiled_with_cuda() else paddle.fluid.CPUPlace()
-
-
 class CheckpointIO(object):
     def __init__(self, fname_template):
         os.makedirs(os.path.dirname(fname_template), exist_ok=True)
@@ -42,8 +39,9 @@ class CheckpointIO(object):
 
 
 if __name__ == '__main__':
+    place = paddle.fluid.CUDAPlace(0) if paddle.fluid.is_compiled_with_cuda() else paddle.fluid.CPUPlace()
     checkpoint = CheckpointIO('./{:06d}_train')
-    with fluid.dygraph.guard():
+    with fluid.dygraph.guard(place):
         emb = fluid.dygraph.Embedding([10, 10])
         checkpoint.save(1, emb, 'para')
         state_dict = emb.state_dict()

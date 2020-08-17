@@ -266,3 +266,7 @@ if __name__ == '__main__':
     inputs = next(fetcher)
     print(type(inputs), inputs.keys())
     print(type(inputs.x_src), inputs.x_src.shape)
+    x_real, y_org = inputs.x_src, inputs.y_src
+    x_ref, x_ref2, y_trg = inputs.x_ref, inputs.x_ref2, inputs.y_ref
+    z_trg, z_trg2 = inputs.z_trg, inputs.z_trg2
+    print(type(x_real), type(y_org), type(z_trg))

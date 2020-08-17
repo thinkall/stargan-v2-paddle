@@ -12,7 +12,10 @@ import sys
 from munch import Munch
 from core.data_reader import get_train_loader
 from core.data_reader import get_test_loader
-# from solver import Solver
+from core.solver import Solver
+
+import paddle
+import paddle.fluid as fluid
 
 
 def str2bool(v):
@@ -26,8 +29,7 @@ def subdirs(dname):
 
 def main(args):
     print(args)
-    # solver = Solver(args)
-    sys.exit(0)
+    solver = Solver(args)
     if args.mode == 'train':
         assert len(subdirs(args.train_img_dir)) == args.num_domains
         assert len(subdirs(args.val_img_dir)) == args.num_domains
@@ -77,11 +79,11 @@ if __name__ == '__main__':
                         help='Image resolution')
     parser.add_argument('--num_domains', type=int, default=2,
                         help='Number of domains')
-    parser.add_argument('--latent_dim', type=int, default=16,
+    parser.add_argument('--latent_dim', type=int, default=8,  # 16
                         help='Latent vector dimension')
-    parser.add_argument('--hidden_dim', type=int, default=512,
+    parser.add_argument('--hidden_dim', type=int, default=64,  # 512
                         help='Hidden dimension of mapping network')
-    parser.add_argument('--style_dim', type=int, default=64,
+    parser.add_argument('--style_dim', type=int, default=8,  # 64
                         help='Style code dimension')
 
     # weight for objective functions
@@ -95,8 +97,8 @@ if __name__ == '__main__':
                         help='Weight for diversity sensitive loss')
     parser.add_argument('--ds_iter', type=int, default=100000,
                         help='Number of iterations to optimize diversity sensitive loss')
-    parser.add_argument('--w_hpf', type=float, default=1,
-                        help='weight for high-pass filtering')
+    parser.add_argument('--w_hpf', type=float, default=0,
+                        help='weight for high-pass filtering')  # default=1
 
     # training arguments
     parser.add_argument('--randcrop_prob', type=float, default=0.5,
@@ -105,9 +107,9 @@ if __name__ == '__main__':
                         help='Number of total iterations')
     parser.add_argument('--resume_iter', type=int, default=0,
                         help='Iterations to resume training/testing')
-    parser.add_argument('--batch_size', type=int, default=8,
+    parser.add_argument('--batch_size', type=int, default=4,  # 8
                         help='Batch size for training')
-    parser.add_argument('--val_batch_size', type=int, default=32,
+    parser.add_argument('--val_batch_size', type=int, default=4,  # 32
                         help='Batch size for validation')
     parser.add_argument('--lr', type=float, default=1e-4,
                         help='Learning rate for D, E and G')
@@ -119,7 +121,7 @@ if __name__ == '__main__':
                         help='Decay rate for 2nd moment of Adam')
     parser.add_argument('--weight_decay', type=float, default=1e-4,
                         help='Weight decay for optimizer')
-    parser.add_argument('--num_outs_per_domain', type=int, default=10,
+    parser.add_argument('--num_outs_per_domain', type=int, default=2,  # 10
                         help='Number of generated images per domain during sampling')
 
     # misc
@@ -132,9 +134,9 @@ if __name__ == '__main__':
                         help='Seed for random number generator')
 
     # directory for training
-    parser.add_argument('--train_img_dir', type=str, default='data/celeba_hq/train',
+    parser.add_argument('--train_img_dir', type=str, default='data_dev/celeba_hq/train',
                         help='Directory containing training images')
-    parser.add_argument('--val_img_dir', type=str, default='data/celeba_hq/val',
+    parser.add_argument('--val_img_dir', type=str, default='data_dev/celeba_hq/val',
                         help='Directory containing validation images')
     parser.add_argument('--sample_dir', type=str, default='expr/samples',
                         help='Directory for saving generated images')
@@ -162,10 +164,16 @@ if __name__ == '__main__':
     parser.add_argument('--lm_path', type=str, default='expr/checkpoints/celeba_lm_mean.npz')
 
     # step size
-    parser.add_argument('--print_every', type=int, default=10)
-    parser.add_argument('--sample_every', type=int, default=5000)
-    parser.add_argument('--save_every', type=int, default=10000)
+    parser.add_argument('--print_every', type=int, default=1)
+    parser.add_argument('--sample_every', type=int, default=1)
+    parser.add_argument('--save_every', type=int, default=1)
     parser.add_argument('--eval_every', type=int, default=50000)
 
+    # choose gpu
+    parser.add_argument('--whichgpu', type=int, default=1)
+
     args = parser.parse_args()
-    main(args)
+
+    place = paddle.fluid.CUDAPlace(args.whichgpu) if paddle.fluid.is_compiled_with_cuda() else paddle.fluid.CPUPlace()
+    with fluid.dygraph.guard(place):
+        main(args)
