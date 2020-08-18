@@ -57,14 +57,17 @@ class Solver(object):
 
     def _save_checkpoint(self, step):
         for net in self.ckptios:
-            if len(self.ckptios[net]) == 1:
-                self.ckptios[net][0].save(step, self.nets_ema[net], 'para')
-                # self.ckptios[net][0].save(step, self.optims[net], 'opti')
-            else:
-                self.ckptios[net][0].save(step, self.nets_ema[net], 'para')
-                # self.ckptios[net][0].save(step, self.optims[net], 'opti')
-                self.ckptios[net][1].save(step, self.nets[net], 'para')
-                self.ckptios[net][1].save(step, self.optims[net], 'opti')
+            try:
+                if len(self.ckptios[net]) == 1:
+                    self.ckptios[net][0].save(step, self.nets_ema[net], 'para')
+                    # self.ckptios[net][0].save(step, self.optims[net], 'opti')
+                else:
+                    self.ckptios[net][0].save(step, self.nets_ema[net], 'para')
+                    # self.ckptios[net][0].save(step, self.optims[net], 'opti')
+                    self.ckptios[net][1].save(step, self.nets[net], 'para')
+                    self.ckptios[net][1].save(step, self.optims[net], 'opti')
+            except Exception as e:
+                print(e)
 
     def _load_checkpoint(self, step):
         for net in self.ckptios:

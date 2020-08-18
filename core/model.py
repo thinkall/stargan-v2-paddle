@@ -85,7 +85,9 @@ class AdaIN(fluid.dygraph.Layer):
         self.fc = nn.Linear(style_dim, num_features * 2)
 
     def forward(self, x, s):
-        h = self.fc(s)  # [8, 1024], [8,512] ...
+        # print(f's.shape = {s.shape}')
+        h = self.fc(s)  # h: [batch_size, num_features * 2]
+        # print(f'good s.shape = {s.shape}')
         h = fluid.layers.reshape(h, shape=[h.shape[0], h.shape[1], 1, 1])
         h = fluid.layers.split(h, num_or_sections=2, dim=1)
         gamma, beta = h[0], h[1]
@@ -254,7 +256,7 @@ class MappingNetwork(fluid.dygraph.Layer):
         out = paddle.fluid.layers.stack(out, axis=2)  # (batch, style_dim, num_domains)
         out = fluid.layers.transpose(out, [0, 2, 1])  # (batch, num_domains, style_dim)
         idx = np.array(range(y.shape[0]))
-        s = out.numpy()[idx, y.numpy()-1]  # (batch, style_dim)
+        s = out.numpy()[idx, y.numpy().astype('int')]  # (batch, style_dim)
         return fluid.dygraph.to_variable(s)
 
 
@@ -290,7 +292,7 @@ class StyleEncoder(fluid.dygraph.Layer):
         out = paddle.fluid.layers.stack(out, axis=2)  # (batch, style_dim, num_domains)
         out = fluid.layers.transpose(out, [0, 2, 1])  # (batch, num_domains, style_dim)
         idx = np.array(range(y.shape[0]))
-        s = out.numpy()[idx, y.numpy()-1]  # (batch, style_dim)
+        s = out.numpy()[idx, y.numpy()]  # (batch, style_dim)
         return fluid.dygraph.to_variable(s)
 
 
@@ -317,7 +319,7 @@ class Discriminator(fluid.dygraph.Layer):
         out = self.main(x)
         out = fluid.layers.reshape(out, shape=[out.shape[0], -1])  # (batch, num_domains)
         idx = np.array(range(y.shape[0]))
-        out = out.numpy()[idx, y.numpy()-1]  # (batch)
+        out = out.numpy()[idx, y.numpy()]  # (batch)
         return fluid.dygraph.to_variable(out)
 
 

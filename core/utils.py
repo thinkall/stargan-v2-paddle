@@ -8,7 +8,7 @@ PaddlePaddle Implementation of StarGAN-v2
 import os
 from os.path import join as ospj
 import numpy as np
-import cv2
+from PIL import Image
 
 import paddle
 import paddle.fluid as fluid
@@ -16,12 +16,18 @@ import paddle.fluid as fluid
 
 def denormalize(x):
     out = (x + 1) / 2
-    return out.clamp_(0, 1)
+    return fluid.layers.clamp(out, min=0, max=1)
 
 
 def save_image(x, ncol, filename):
     x = denormalize(x)
-    cv2.imwrite(filename, x.numpy())
+    x = x.numpy()
+    N, C, H, W = x.shape
+    x = x.reshape(N * C, H, W)
+    x = x * 255 + 0.5
+    x = x.astype('int')
+    im = Image.fromarray(x.transpose(1, 2, 0), mode='RGB')
+    im.save(filename)
 
 
 def torch_lerp(start, end, weight):
@@ -53,15 +59,15 @@ def translate_using_latent(nets, args, x_src, y_trg_list, z_trg_list, psi, filen
 
     for i, y_trg in enumerate(y_trg_list):
         z_many = np.random.randn(10000, latent_dim)
-        y_many = np.ones(10000) * y_trg[0]
-        z_many = fluid.dygraph.to_variable(z_many)
+        y_many = np.ones(10000) * y_trg[0].numpy()
+        z_many = fluid.dygraph.to_variable(z_many.astype('float32'))
         y_many = fluid.dygraph.to_variable(y_many)
         s_many = nets.mapping_network(z_many, y_many)
         s_avg = fluid.layers.reduce_mean(s_many, dim=0, keep_dim=True)
         s_avg = fluid.layers.concat([s_avg] * N, axis=0)
 
         for z_trg in z_trg_list:
-            s_trg = nets.mapping_network(z_trg, y_trg)
+            s_trg = nets.mapping_network(z_trg.astype('float32'), y_trg)
             s_trg = torch_lerp(s_avg, s_trg, psi)
             x_fake = nets.generator(x_src, s_trg, masks=masks)
             x_concat += [x_fake]
@@ -74,15 +80,13 @@ def translate_using_latent(nets, args, x_src, y_trg_list, z_trg_list, psi, filen
 def translate_using_reference(nets, args, x_src, x_ref, y_ref, filename):
     N, C, H, W = x_src.shape
     wb = np.ones([1, C, H, W])
-    wb = fluid.dygraph.to_variable(wb)
+    wb = fluid.dygraph.to_variable(wb.astype('float32'))
     x_src_with_wb = fluid.layers.concat([wb, x_src], axis=0)
 
     masks = nets.fan.get_heatmap(x_src) if args.w_hpf > 0 else None
     s_ref = nets.style_encoder(x_ref, y_ref)
-    s_ref_list = s_ref.unsqueeze([1])
-    s_ref_list = fluid.layers.concat([s_ref]*N, axis=1)
     x_concat = [x_src_with_wb]
-    for i, s_ref in enumerate(s_ref_list):
+    for i in range(N):
         x_fake = nets.generator(x_src, s_ref, masks=masks)
         x_fake_with_ref = fluid.layers.concat([x_ref[i:i+1], x_fake], axis=0)
         x_concat += [x_fake_with_ref]
@@ -96,6 +100,10 @@ def translate_using_reference(nets, args, x_src, x_ref, y_ref, filename):
 def debug_image(nets, args, inputs, step):
     x_src, y_src = inputs.x_src, inputs.y_src
     x_ref, y_ref = inputs.x_ref, inputs.y_ref
+    x_src = fluid.dygraph.to_variable(x_src.astype('float32'))
+    y_src = fluid.dygraph.to_variable(y_src)
+    x_ref = fluid.dygraph.to_variable(x_ref.astype('float32'))
+    y_ref = fluid.dygraph.to_variable(y_ref)
 
     N = inputs.x_src.shape[0]
 
@@ -104,7 +112,7 @@ def debug_image(nets, args, inputs, step):
     translate_and_reconstruct(nets, args, x_src, y_src, x_ref, y_ref, filename)
 
     # latent-guided image synthesis
-    y_trg_list = [np.array(y).repeat(N) for y in range(min(args.num_domains, 5))]
+    y_trg_list = np.asarray([np.array(y).repeat(N) for y in range(min(args.num_domains, 5))])
     z_trg_list = np.random.randn(args.num_outs_per_domain, 1, args.latent_dim).repeat(N, axis=1)
     y_trg_list = fluid.dygraph.to_variable(y_trg_list)
     z_trg_list = fluid.dygraph.to_variable(z_trg_list)

@@ -95,6 +95,9 @@ class ReferenceDataset(Dataset):
 
     def _make_dataset(self, root):
         domains = os.listdir(root)
+        for _ in domains:
+            if _[0] == '.':
+                domains.remove(_)  # remove .DS_Store or other similar files
         fnames, fnames2, labels = [], [], []
         for idx, domain in enumerate(sorted(domains)):
             class_dir = os.path.join(root, domain)
@@ -223,7 +226,7 @@ class InputFetcher:
 
 if __name__ == '__main__':
     place = paddle.fluid.CUDAPlace(0) if paddle.fluid.is_compiled_with_cuda() else paddle.fluid.CPUPlace()
-    data_dir = '/Users/jiangli/Work/projects/github-projects/stargan-v2/stargan-v2-pytorch/data/celeba_hq/train'
+    data_dir = '/Users/jiangli/Work/projects/github-projects/stargan-v2/stargan-v2-paddle/data_dev/celeba_hq/train'
     data_list = listdir(data_dir)
     print(len(data_list), data_list[0])
 
