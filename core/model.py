@@ -155,7 +155,7 @@ class HighPass(fluid.dygraph.Layer):
 class Generator(fluid.dygraph.Layer):
     def __init__(self, img_size=256, style_dim=64, max_conv_dim=512, w_hpf=1):
         super().__init__()
-        dim_in = 2 ** 14 // img_size
+        dim_in = 2 ** 14 // img_size  # dim_in: 64
         self.img_size = img_size
         self.from_rgb = nn.Conv2D(3, dim_in, 3, 1, 1)
         self.encode = fluid.dygraph.Sequential()
@@ -167,7 +167,7 @@ class Generator(fluid.dygraph.Layer):
         self.w_hpf = w_hpf
 
         # down/up-sampling blocks
-        repeat_num = int(np.log2(img_size)) - 4
+        repeat_num = int(np.log2(img_size)) - 4  # repeat_num: 4
         self.repeat_num = repeat_num
         if w_hpf > 0:
             repeat_num += 1

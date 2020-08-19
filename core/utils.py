@@ -9,6 +9,7 @@ import os
 from os.path import join as ospj
 import numpy as np
 from PIL import Image
+import cv2
 
 import paddle
 import paddle.fluid as fluid
@@ -21,13 +22,18 @@ def denormalize(x):
 
 def save_image(x, ncol, filename):
     x = denormalize(x)
-    x = x.numpy()
-    N, C, H, W = x.shape
-    x = x.reshape(N * C, H, W)
     x = x * 255 + 0.5
-    x = x.astype('int')
-    im = Image.fromarray(x.transpose(1, 2, 0), mode='RGB')
-    im.save(filename)
+    print(x.shape, ncol, filename)
+    N, C, H, W = x.shape
+    nrow = N // ncol
+    img = np.zeros((H * nrow, W * ncol, 3))
+    for idx in range(N):
+        i = idx % ncol
+        j = idx // nrow
+        img[H*j:H*(j+1), W*i:W*(i+1), :] = x[idx].numpy().transpose(1,2,0)
+    img = cv2.cvtColor(img.astype('uint8'), cv2.COLOR_RGB2BGR)
+    # print(f'good for {filename}')
+    return cv2.imwrite(filename, img)
 
 
 def torch_lerp(start, end, weight):

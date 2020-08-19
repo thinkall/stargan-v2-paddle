@@ -55,6 +55,8 @@ class Solver(object):
             for net in self.nets.keys():
                 self.ckptios[net] = [CheckpointIO(ospj(args.checkpoint_dir, '{:06d}_nets_ema_' + net))]
 
+        # todo: add kaiming initializing
+
     def _save_checkpoint(self, step):
         for net in self.ckptios:
             try:
@@ -124,44 +126,48 @@ class Solver(object):
                 masks = nets.fan.get_heatmap(x_real) if args.w_hpf > 0 else None
 
                 # train the discriminator
-                print('train the discriminator')
+                # print('train the discriminator')
                 d_loss, d_losses_latent = compute_d_loss(
                     nets, args, x_real, y_org, y_trg, z_trg=z_trg, masks=masks)
-                d_loss.backward()
-                optims.discriminator.minimize(d_loss)
+                d_loss_avg = fluid.layers.mean(d_loss)
+                d_loss_avg.backward()
+                optims.discriminator.minimize(d_loss_avg)
                 self._reset_grad()
 
                 d_loss, d_losses_ref = compute_d_loss(
                     nets, args, x_real, y_org, y_trg, x_ref=x_ref, masks=masks)
-                d_loss.backward()
-                optims.discriminator.minimize(d_loss)
+                d_loss_avg = fluid.layers.mean(d_loss)
+                d_loss_avg.backward()
+                optims.discriminator.minimize(d_loss_avg)
                 self._reset_grad()
 
                 # train the generator
-                print('train the generator 1st')
+                # print('train the generator 1st')
                 g_loss, g_losses_latent = compute_g_loss(
                     nets, args, x_real, y_org, y_trg, z_trgs=[z_trg, z_trg2], masks=masks)
-                g_loss.backward()  # stuck here with 1.8.x cpu version
-                optims.generator.minimize(g_loss)
-                optims.mapping_network.minimize(g_loss)
-                optims.style_encoder.minimize(g_loss)
+                g_loss_avg = fluid.layers.mean(g_loss)
+                g_loss_avg.backward()  # stuck here with 1.8.x cpu version
+                optims.generator.minimize(g_loss_avg)
+                optims.mapping_network.minimize(g_loss_avg)
+                optims.style_encoder.minimize(g_loss_avg)
                 self._reset_grad()
 
-                print('train the generator 2nd')
+                # print('train the generator 2nd')
 
                 g_loss, g_losses_ref = compute_g_loss(
                     nets, args, x_real, y_org, y_trg, x_refs=[x_ref, x_ref2], masks=masks)
-                g_loss.backward()
-                optims.generator.minimize(g_loss)
+                g_loss_avg = fluid.layers.mean(g_loss)
+                g_loss_avg.backward()
+                optims.generator.minimize(g_loss_avg)
                 self._reset_grad()
 
                 # compute moving average of network parameters
-                print('compute moving average of network parameters')
+                # print('compute moving average of network parameters')
                 moving_average(nets.generator, nets_ema.generator, beta=0.999)
                 moving_average(nets.mapping_network, nets_ema.mapping_network, beta=0.999)
                 moving_average(nets.style_encoder, nets_ema.style_encoder, beta=0.999)
 
-                print('finish compute moving average of network parameters')
+                # print('finish compute moving average of network parameters')
 
                 # decay weight for diversity sensitive loss
                 if args.lambda_ds > 0:
