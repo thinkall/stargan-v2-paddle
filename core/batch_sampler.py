@@ -102,7 +102,8 @@ class BatchSampler(object):
                  which=None,  # different mode for starGANv2
                  shuffle=False,
                  batch_size=1,
-                 drop_last=False):
+                 drop_last=False,
+                 make_balanced_sampler=False):
         if dataset is None:
             assert indices is not None, \
                 "either dataset or indices should be set"
@@ -133,6 +134,7 @@ class BatchSampler(object):
         self.drop_last = drop_last
         self.which = which
         self.dataset = dataset
+        self.make_balanced_sampler = make_balanced_sampler
 
     def _read_data(self, batch_indices):
         if self.which is None:
@@ -154,15 +156,40 @@ class BatchSampler(object):
 
         if self.shuffle:
             np.random.shuffle(self.indices)
+
+        if self.make_balanced_sampler:
+            labels_to_idx = {}  # k:v label: [indices...]
+            for i in self.indices:
+                if self.dataset[i][-1] in labels_to_idx:
+                    labels_to_idx[self.dataset[i][-1]].append(i)
+                else:
+                    labels_to_idx[self.dataset[i][-1]] = [i]
+            for label in labels_to_idx.keys():
+                np.random.shuffle(labels_to_idx[label])
+                np.random.shuffle(labels_to_idx[label])
+
+            indices_balanced = []
+            while len(indices_balanced) < len(self.indices):
+                for k in labels_to_idx:
+                    if len(labels_to_idx[k]) > 0:
+                        indices_balanced.append(labels_to_idx[k].pop())
+
+            self.indices = indices_balanced
+
+
         _iter = iter(self.indices)
 
         batch_indices = []
         for idx in _iter:
             batch_indices.append(idx)
             if len(batch_indices) == self.batch_size:
+                if self.make_balanced_sampler:
+                    np.random.shuffle(batch_indices)
                 yield self._read_data(batch_indices)
                 batch_indices = []
         if not self.drop_last and len(batch_indices) > 0:
+            if self.make_balanced_sampler:
+                np.random.shuffle(batch_indices)
             yield self._read_data(batch_indices)
 
     def __len__(self):

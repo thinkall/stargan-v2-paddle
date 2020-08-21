@@ -139,7 +139,8 @@ def get_train_loader(root, which='source', img_size=256,
                         which=which,
                         shuffle=True,
                         batch_size=batch_size,
-                        drop_last=True)
+                        drop_last=True,
+                        make_balanced_sampler=True)
 
 
 def get_eval_loader(root, img_size=256, batch_size=32,

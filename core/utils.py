@@ -23,13 +23,14 @@ def denormalize(x):
 def save_image(x, ncol, filename):
     x = denormalize(x)
     x = x * 255 + 0.5
-    print(x.shape, ncol, filename)
+    # print(x.shape, ncol, filename)
     N, C, H, W = x.shape
     nrow = N // ncol
     img = np.zeros((H * nrow, W * ncol, 3))
+    # print(img.shape)
     for idx in range(N):
         i = idx % ncol
-        j = idx // nrow
+        j = idx // ncol
         img[H*j:H*(j+1), W*i:W*(i+1), :] = x[idx].numpy().transpose(1,2,0)
     img = cv2.cvtColor(img.astype('uint8'), cv2.COLOR_RGB2BGR)
     # print(f'good for {filename}')
