@@ -1,7 +1,3 @@
-- [x] fix save image
-    - [x] latent_psi still have some problems
-- [ ] fix save checkpoint
 - [ ] data alignment with pytorch
-- [x] add _make_balanced_sampler
 - [ ] add kaiming initializer
 - [ ] add wing
