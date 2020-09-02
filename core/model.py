@@ -48,8 +48,16 @@ class ResBlk(fluid.dygraph.Layer):
         self.conv1 = nn.Conv2D(dim_in, dim_in, 3, 1, 1)
         self.conv2 = nn.Conv2D(dim_in, dim_out, 3, 1, 1)
         if self.normalize:
-            self.norm1 = fluid.dygraph.InstanceNorm(dim_in)
-            self.norm2 = fluid.dygraph.InstanceNorm(dim_in)
+            self.norm1 = fluid.dygraph.InstanceNorm(
+                dim_in, epsilon=1e-05,
+                param_attr=fluid.ParamAttr(initializer=fluid.initializer.Constant(1.0), trainable=False),
+                bias_attr=fluid.ParamAttr(initializer=fluid.initializer.Constant(0.0), trainable=False),
+                dtype='float32')  # affine=False,对应代码中的两个参数设置
+            self.norm2 = fluid.dygraph.InstanceNorm(
+                dim_in, epsilon=1e-05,
+                param_attr=fluid.ParamAttr(initializer=fluid.initializer.Constant(1.0), trainable=False),
+                bias_attr=fluid.ParamAttr(initializer=fluid.initializer.Constant(0.0), trainable=False),
+                dtype='float32')  # affine=False,对应代码中的两个参数设置
         if self.learned_sc:
             self.conv1x1 = nn.Conv2D(dim_in, dim_out, 1, 1, 0, bias_attr=False)
 
@@ -81,7 +89,11 @@ class ResBlk(fluid.dygraph.Layer):
 class AdaIN(fluid.dygraph.Layer):
     def __init__(self, style_dim, num_features):
         super().__init__()
-        self.norm = fluid.dygraph.InstanceNorm(num_features)
+        self.norm = fluid.dygraph.InstanceNorm(
+            num_features, epsilon=1e-05,
+            param_attr=fluid.ParamAttr(initializer=fluid.initializer.Constant(1.0), trainable=False),
+            bias_attr=fluid.ParamAttr(initializer=fluid.initializer.Constant(0.0), trainable=False),
+            dtype='float32')  # affine=False,对应代码中的两个参数设置
         self.fc = nn.Linear(style_dim, num_features * 2)
 
     def forward(self, x, s):
@@ -160,7 +172,13 @@ class Generator(fluid.dygraph.Layer):
         self.from_rgb = nn.Conv2D(3, dim_in, 3, 1, 1)
         self.encode = fluid.dygraph.Sequential()
         self.decode = fluid.dygraph.Sequential()
-        self.to_rgb = fluid.dygraph.Sequential(fluid.dygraph.InstanceNorm(dim_in),
+        self.to_rgb = fluid.dygraph.Sequential(fluid.dygraph.InstanceNorm(
+                                                   dim_in, epsilon=1e-05,
+                                                   param_attr=fluid.ParamAttr(
+                                                       initializer=fluid.initializer.Constant(1.0), trainable=False),
+                                                   bias_attr=fluid.ParamAttr(
+                                                       initializer=fluid.initializer.Constant(0.0), trainable=False),
+                                                   dtype='float32'),  # affine=False,对应代码中的两个参数设置
                                                # functools.partial(fluid.layers.leaky_relu, alpha=0.2),
                                                LeakyRelu(alpha=0.2),
                                                nn.Conv2D(dim_in, 3, 1, 1, 0))
