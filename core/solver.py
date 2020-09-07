@@ -84,8 +84,8 @@ class Solver(object):
                 self.optims[net].load_dict(opti_state_dict)
 
     def _reset_grad(self):
-        for net in self.nets:
-            self.nets[net].clear_gradients()
+        for optim in self.optims.values():
+            optim.clear_gradients()
 
     def train(self, loaders):
         place = paddle.fluid.CUDAPlace(self.args.whichgpu) if paddle.fluid.is_compiled_with_cuda() else paddle.fluid.CPUPlace()
@@ -129,37 +129,37 @@ class Solver(object):
                 # print('train the discriminator')
                 d_loss, d_losses_latent = compute_d_loss(
                     nets, args, x_real, y_org, y_trg, z_trg=z_trg, masks=masks)
+                self._reset_grad()
                 d_loss_avg = fluid.layers.mean(d_loss)
                 d_loss_avg.backward()
                 optims.discriminator.minimize(d_loss_avg)
-                self._reset_grad()
 
                 d_loss, d_losses_ref = compute_d_loss(
                     nets, args, x_real, y_org, y_trg, x_ref=x_ref, masks=masks)
+                self._reset_grad()
                 d_loss_avg = fluid.layers.mean(d_loss)
                 d_loss_avg.backward()
                 optims.discriminator.minimize(d_loss_avg)
-                self._reset_grad()
 
                 # train the generator
                 # print('train the generator 1st')
                 g_loss, g_losses_latent = compute_g_loss(
                     nets, args, x_real, y_org, y_trg, z_trgs=[z_trg, z_trg2], masks=masks)
+                self._reset_grad()
                 g_loss_avg = fluid.layers.mean(g_loss)
                 g_loss_avg.backward()  # stuck here with 1.8.x cpu version
                 optims.generator.minimize(g_loss_avg)
                 optims.mapping_network.minimize(g_loss_avg)
                 optims.style_encoder.minimize(g_loss_avg)
-                self._reset_grad()
 
                 # print('train the generator 2nd')
 
                 g_loss, g_losses_ref = compute_g_loss(
                     nets, args, x_real, y_org, y_trg, x_refs=[x_ref, x_ref2], masks=masks)
+                self._reset_grad()
                 g_loss_avg = fluid.layers.mean(g_loss)
                 g_loss_avg.backward()
                 optims.generator.minimize(g_loss_avg)
-                self._reset_grad()
 
                 # compute moving average of network parameters
                 # print('compute moving average of network parameters')
