@@ -157,3 +157,7 @@ python -m pip install pillow==7.0.0 scipy==1.2.1 tqdm==4.43.0 munch==2.5.0
 StarGAN v2设计了Mapping Network，将固定的风格编码用更加灵活的映射网络去学习，可以更加丰富的学习到风格表示，同时整个网络的设计也像较于MUNIT得到了一定的精简，结构更加清晰。网络的整体架构参考了StyleGAN的优越的生成效果，在图像转换上进一步得到了提高，同时也处理了图像翻译下将一个域的图像转换为目标域的多种图像，并支持多个目标域的问题。
 
 接下来，用paddlepaddle复现，PaddlePaddle的API跟Pytorch挺像的，希望能够完美复现吧！
+
+**复现过程小结**
+
+- 2020.09.07 复现还是很有难度的，之前边查API边写，干了得有四十个小时以上，还缺wing、r1_reg和kaiming初始化没实现，另外可能还有其它bug，效果图在notebook中，目前还是有问题的。
